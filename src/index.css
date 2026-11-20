@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#070b14] text-slate-100 font-sans antialiased;
+    background-image: 
+      radial-gradient(ellipse 90% 60% at 50% -25%, rgba(0, 240, 255, 0.12), transparent 70%),
+      radial-gradient(ellipse 70% 50% at 85% 90%, rgba(168, 85, 247, 0.08), transparent 60%),
+      radial-gradient(ellipse 50% 40% at 10% 70%, rgba(0, 255, 136, 0.06), transparent 50%),
+      linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+    background-attachment: fixed;
+  }
+}
+
+/* Cyber custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090e1a;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00f0ff;
+}
+
+/* Glassmorphism panel helper */
+.cyber-card {
+  background: rgba(14, 20, 36, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.cyber-card-active {
+  background: rgba(16, 26, 48, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 240, 255, 0.4);
+  box-shadow: 0 0 25px -5px rgba(0, 240, 255, 0.2), inset 0 1px 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.radar-scan {
+  animation: radarSweep 3s linear infinite;
+}
+
+@keyframes radarSweep {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pulse-glow {
+  animation: pulseGlow 2s ease-in-out infinite alternate;
+}
+
+@keyframes pulseGlow {
+  0% {
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 25px rgba(0, 240, 255, 0.6);
+  }
+}
