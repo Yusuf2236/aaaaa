@@ -31,6 +31,7 @@ Ushbu tadqiqot 6 ta vazifani to‘liq hal qiladi:
 | 2 | `MultiSigTreasury.sol` | Access Control / Unprotected Init | SWC-106 / CWE-284 | **CRITICAL** | Parity MultiSig ($180M) | Tuzatildi (`Ownable2Step` + constructor) |
 | 3 | `LendingPoolOracle.sol` | Flash Loan Oracle Manipulation | SWC-114 / CWE-682 | **CRITICAL** | bZx & Harvest ($130M+) | Tuzatildi (Chainlink AggregatorV3) |
 | 4 | `BatchTokenTransfer.sol` | Integer Overflow | SWC-101 / CWE-190 | **HIGH** | BEC Token ($900M+) | Tuzatildi (Solidity 0.8+ Checked Math) |
+| 5 | `SignatureReplay.sol` | Signature Replay | SWC-121 / CWE-347 | **HIGH** | Wintermute / AnySwap ($8M+) | Tuzatildi (EIP-712 + Nonce + ChainId) |
 
 ---
 
@@ -57,6 +58,11 @@ Ushbu tadqiqot 6 ta vazifani to‘liq hal qiladi:
 - **Muammo:** Solidity 0.7.6 da `uint256 amount = cnt * _value;` SafeMath-siz ko‘paytiriladi. 2 ta qabul qiluvchiga `2^255` jo‘natilganda `amount = 0` bo‘lib, `balances[msg.sender] >= 0` tekshiruvi aylanib o‘tiladi.
 - **Ekspluatatsiya Isboti (PoC):** Attacker hamyonida 0 token bo‘lsa ham, cheksiz milliardlab tokenlarni yangidan hosil qilib tarqatadi.
 - **Tuzatish:** Zamonaviy Solidity 0.8.20 ga o‘tildi (ichki Checked Arithmetic). Toshish sodir bo‘lsa, EVM avtomatik `Panic(0x11)` bilan revert qiladi.
+
+### 3.5. Missing Replay Protection (`SignatureReplay.sol` - SWC-121)
+- **Muammo:** `transferWithSig()` funksiyasida `nonce` yoki tarmoq identifikatori (`block.chainid`) mavjud emas.
+- **Ekspluatatsiya Isboti (PoC):** Foydalanuvchi faqat 1 ETH o‘tkazish uchun bir marotaba bergan haqiqiy imzo (`r, s, v`) tajovuzkor tomonidan 10 marta qayta-qayta yuborilib, butun depozit (10 ETH) o‘g‘irlandi.
+- **Tuzatish:** EIP-712 standartiga asoslangan TypeHash va Domain Separator joriy qilindi hamda har bir foydalanuvchi uchun alohida `nonces[from]++` hisoblagichi qo‘shildi.
 
 ---
 

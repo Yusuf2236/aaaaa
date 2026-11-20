@@ -37,7 +37,8 @@ function AuditLabContent() {
     'case-reentrancy-dao': 'withdraw() ichida balances[msg.sender]=0 tashqi chaqiruvdan keyin qolgan. Checks-Effects-Interactions buzilgan.',
     'case-access-control-parity': 'initWallet public qolgan, istalgan odam owner bo‘lib oladi.',
     'case-oracle-manipulation': 'getReserves() spot narx olingan, flash-loan bilan oson manipulyatsiya qilinadi.',
-    'case-integer-overflow': 'Solidity 0.7.6 da ko‘paytirish amali SafeMath-siz toshib 0 ga aylanadi.'
+    'case-integer-overflow': 'Solidity 0.7.6 da ko‘paytirish amali SafeMath-siz toshib 0 ga aylanadi.',
+    'case-signature-replay': 'transferWithSig ichida nonce va EIP-712 yo‘qligi sababli bir martalik imzoni qayta ishlatish mumkin.'
   });
 
   const activeContract =

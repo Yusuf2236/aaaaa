@@ -4,7 +4,8 @@ export type Category =
   | 'reentrancy' 
   | 'access_control' 
   | 'oracle_manipulation' 
-  | 'integer_overflow';
+  | 'integer_overflow'
+  | 'signature_replay';
 
 export interface Finding {
   id: string;
