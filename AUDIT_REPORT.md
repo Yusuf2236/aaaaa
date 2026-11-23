@@ -14,7 +14,7 @@
 Smart-kontraktlar blokcheyn tarmog‘iga (EVM) joylashtirilgandan so‘ng ularni o‘zgartirib bo‘lmasligi (immutability) tufayli har qanday kichik xato tuzatib bo‘lmas moliyaviy fojiaga olib keladi. Mazkur laboratoriya loyihasi doirasida talabalar va auditorlar uchun **4 ta real hujum keyslari (The DAO hack, Parity MultiSig, DeFi Flash Loan Oracle Manipulation, BEC BatchOverflow)** chuqur tahlil qilindi.
 
 Ushbu tadqiqot 6 ta vazifani to‘liq hal qiladi:
-1. **Kamida 3 ta (jami 4 ta) kontraktni qo‘lda tahlil qilish:** Reentrancy, Access Control, Oracle Spot Manipulation va Integer Overflow.
+1. **Kamida 3 ta (jami 5 ta) kontraktni qo‘lda tahlil qilish:** Reentrancy, Access Control, Oracle Spot Manipulation, Integer Overflow va Signature Replay.
 2. **Slither va statik tahlil vositalarini ishga tushirish:** CFG, AST va SlithIR vositasida avtomatlashtirilgan detektorlar tahlili.
 3. **Har bir topilma uchun ekspluatatsiya testini yozish (PoC):** Foundry (`forge test -vvvv`) va Hardhat testlari orqali 100% mablag‘ o‘g‘irlanishi isbotlandi.
 4. **Zaifliklarni jiddiylik bo‘yicha tasniflash:** CVSS 3.1 va SWC standartlari asosida (Critical, High, Medium, Low).

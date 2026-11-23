@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ContractLabCase } from '../types';
+import { streamRealtimeCommand } from '../utils/realtimeStream';
 import {
   ShieldAlert,
   Play,
@@ -12,7 +13,8 @@ import {
   ArrowRight,
   Radar,
   Radio,
-  FileCode2
+  FileCode2,
+  Zap
 } from 'lucide-react';
 
 interface StaticAnalysisTabProps {
@@ -28,40 +30,68 @@ export const StaticAnalysisTab: React.FC<StaticAnalysisTabProps> = ({
 }) => {
   const [isRunning, setIsRunning] = useState(false);
   const [activeDetector, setActiveDetector] = useState<string | null>(null);
+  const [slitherIssues, setSlitherIssues] = useState<any[]>(contract.slitherReport?.issues || []);
   const [terminalLogs, setTerminalLogs] = useState<string[]>([
-    `[INFO] Slither v0.10.2 static analyzer initialized.`,
+    `[INFO] Slither v0.11.6 real-time static analyzer connected.`,
     `[INFO] Target: contracts/${contract.fileName}`,
-    `[READY] Tahlilni boshlash uchun "Slither Tahlilini Boshlash" tugmasini bosing.`
+    `[READY] Haqiqiy Slither tahlilini real-vaqtda boshlash uchun tugmani bosing.`
   ]);
 
-  const runSlitherScan = () => {
+  // Load real Slither detectors dynamically from backend
+  React.useEffect(() => {
+    fetch(`/api/slither/detectors?file=${contract.fileName}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.issues) {
+          setSlitherIssues(data.issues);
+        }
+      })
+      .catch(() => {});
+  }, [contract.fileName]);
+
+  const runSlitherScan = async () => {
     setIsRunning(true);
     setTerminalLogs([
-      `[INFO] Compiling contracts/${contract.fileName} with solc-select...`,
-      `[INFO] Running 93 detectors against AST & Control Flow Graph (CFG)...`
+      `[REALTIME ENGINE] Slither static analyzer ishga tushirilmoqda...`,
+      `[TARGET] contracts/${contract.fileName}`,
+      `[COMMAND] slither contracts/${contract.fileName} --compile-force-framework foundry`
     ]);
 
-    setTimeout(() => {
-      setTerminalLogs((prev) => [
-        ...prev,
-        `[SCAN] Generating CFG (Control Flow Graph) representation...`,
-        `[SCAN] Checking SSA (Static Single Assignment) variables...`,
-        `[DETECT] Running detector: reentrancy-eth...`,
-        `[DETECT] Running detector: unprotected-upgrade...`,
-        `[DETECT] Running detector: arbitrary-send-erc20...`
-      ]);
-    }, 700);
+    await streamRealtimeCommand(
+      '/api/slither/scan',
+      { contractFile: contract.fileName },
+      {
+        onStart: (cmd) => {
+          setTerminalLogs((prev) => [...prev, `[PROCESS STARTED] $ ${cmd}`]);
+        },
+        onLine: (line) => {
+          setTerminalLogs((prev) => [...prev.slice(-300), line]);
+        },
+        onDone: async (exitCode) => {
+          setIsRunning(false);
+          // Refresh real detector findings
+          try {
+            const res = await fetch(`/api/slither/detectors?file=${contract.fileName}`);
+            const data = await res.json();
+            if (data.success && data.issues) {
+              setSlitherIssues(data.issues);
+            }
+          } catch {}
 
-    setTimeout(() => {
-      setTerminalLogs((prev) => [
-        ...prev,
-        `------------------------------------------------------------`,
-        `[ALERT] ${contract.slitherReport.summary}`,
-        `[SUCCESS] Slither tahlili yakunlandi: ${contract.slitherReport.issues.length} ta xavfsizlik ogohlantirishi qayd etildi.`
-      ]);
-      setIsRunning(false);
-      onScanCompleted(contract.id);
-    }, 1500);
+          setTerminalLogs((prev) => [
+            ...prev,
+            `------------------------------------------------------------`,
+            `[FINISHED] Slither tahlili yakunlandi (Exit Code: ${exitCode}).`,
+            `[SUCCESS] Dinamik xavfsizlik detektorlari qayd etildi.`
+          ]);
+          onScanCompleted(contract.id);
+        },
+        onError: (err) => {
+          setIsRunning(false);
+          setTerminalLogs((prev) => [...prev, `[ERROR] ${err}`]);
+        }
+      }
+    );
   };
 
   return (
@@ -160,7 +190,7 @@ export const StaticAnalysisTab: React.FC<StaticAnalysisTabProps> = ({
         <div className="flex items-center justify-between">
           <h3 className="text-base sm:text-lg font-extrabold text-white flex items-center gap-2">
             <ShieldAlert className="w-5 h-5 text-cyan-400" />
-            Slither Detektorlari Natijalari ({contract.slitherReport.issues.length} ta topilma)
+            Slither Detektorlari Natijalari ({slitherIssues.length} ta real topilma)
           </h3>
           <span
             className={`text-xs sm:text-sm font-mono font-bold px-3 py-1.5 rounded-full border ${
@@ -174,7 +204,7 @@ export const StaticAnalysisTab: React.FC<StaticAnalysisTabProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {contract.slitherReport.issues.map((issue) => {
+          {slitherIssues.map((issue) => {
             const isSelected = activeDetector === issue.id;
             return (
               <div

@@ -34,8 +34,37 @@ export const AIAuditReviewTab: React.FC<AIAuditReviewTabProps> = ({
   const [studentCritique, setStudentCritique] = useState<string>('');
   const [savedSuccess, setSavedSuccess] = useState(false);
 
+  // Load existing saved critique on contract change
+  React.useEffect(() => {
+    fetch('/api/notes')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data[`ai_critique_${contract.id}`]) {
+          setStudentCritique(data[`ai_critique_${contract.id}`]);
+        }
+      })
+      .catch(() => {});
+  }, [contract.id]);
+
   const handleSaveReview = () => {
     setSavedSuccess(true);
+    // Persist critique to backend
+    fetch('/api/notes')
+      .then((res) => res.json())
+      .then((existing) => {
+        const updated = {
+          ...existing,
+          [`ai_critique_${contract.id}`]: studentCritique,
+          [`ai_score_${contract.id}`]: studentScore
+        };
+        fetch('/api/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated)
+        });
+      })
+      .catch(() => {});
+
     onReviewCompleted(contract.id);
     setTimeout(() => setSavedSuccess(false), 2500);
   };

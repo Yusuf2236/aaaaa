@@ -83,19 +83,19 @@ export const LoginGateBanner: React.FC = () => {
       <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
         <button
           onClick={() => setModalOpen(true)}
-          className="flex-1 md:flex-none flex items-center justify-center space-x-2 px-5 py-3 rounded-2xl font-black text-xs sm:text-sm bg-gradient-to-r from-cyan-500 via-sky-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 shadow-[0_0_20px_rgba(0,240,255,0.35)] transition-all hover:scale-105 active:scale-95 shrink-0"
+          className="flex-1 md:flex-none flex items-center justify-center space-x-2 px-5 py-3 rounded-2xl font-black text-xs sm:text-sm bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 shadow-[0_0_20px_rgba(245,158,11,0.35)] transition-all hover:scale-105 active:scale-95 shrink-0"
         >
-          <User className="w-4 h-4" />
-          <span>MetaMasksiz Kirish</span>
+          <Wallet className="w-4 h-4" />
+          <span>MetaMask Akkauntini Bog‘lash</span>
           <ArrowRight className="w-4 h-4" />
         </button>
 
         <button
           onClick={() => setModalOpen(true)}
-          className="flex-1 md:flex-none flex items-center justify-center space-x-2 px-4 py-3 rounded-2xl font-bold text-xs sm:text-sm bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/40 transition-all hover:scale-105 active:scale-95 shrink-0"
+          className="flex-1 md:flex-none flex items-center justify-center space-x-2 px-4 py-3 rounded-2xl font-bold text-xs sm:text-sm bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 transition-all hover:scale-105 active:scale-95 shrink-0"
         >
-          <Wallet className="w-4 h-4 text-amber-400" />
-          <span>MetaMask Hamyoni</span>
+          <User className="w-4 h-4 text-cyan-400" />
+          <span>MetaMasksiz Kirish</span>
         </button>
       </div>
 

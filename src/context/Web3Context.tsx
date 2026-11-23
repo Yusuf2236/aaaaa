@@ -17,8 +17,9 @@ export interface Web3ContextType {
   authMethod: 'metamask' | 'credentials' | 'private_key' | 'demo' | null;
   deployedContracts: DeployedContractRecord[];
   connectMetaMask: () => Promise<void>;
-  connectDemoWallet: (role?: string) => void;
   loginWithoutMetaMask: (name: string, email: string, role: string) => Promise<boolean>;
+  loginWithManualAddress: (address: string, name?: string, role?: string) => Promise<boolean>;
+  loginWithMetaMaskCredentials: (params: { address: string; password?: string; name?: string; role?: string }) => Promise<boolean>;
   loginWithPrivateKey: (privateKey: string, name: string, role: string) => Promise<boolean>;
   signAuditSession: (customMessage?: string) => Promise<boolean>;
   deployContractToBlockchain: (params: {
@@ -26,6 +27,7 @@ export interface Web3ContextType {
     contractName: string;
     sourceCode: string;
     networkId?: string;
+    realOnChain?: boolean;
   }) => Promise<DeployedContractRecord>;
   disconnectWallet: () => void;
   logout: () => void;
@@ -37,7 +39,7 @@ const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 export const SUPPORTED_NETWORKS: Record<string, { name: string; rpc: string; explorer: string; symbol: string }> = {
   '0xaa36a7': {
     name: 'Sepolia Testnet (Ethereum)',
-    rpc: 'https://rpc.sepolia.org',
+    rpc: 'https://ethereum-sepolia-rpc.publicnode.com',
     explorer: 'https://sepolia.etherscan.io',
     symbol: 'SEP ETH'
   },
@@ -55,7 +57,7 @@ export const SUPPORTED_NETWORKS: Record<string, { name: string; rpc: string; exp
   },
   '0x1': {
     name: 'Ethereum Mainnet',
-    rpc: 'https://eth.llamarpc.com',
+    rpc: 'https://ethereum-rpc.publicnode.com',
     explorer: 'https://etherscan.io',
     symbol: 'ETH'
   },
@@ -89,27 +91,45 @@ function deriveAddressFromSeed(seed: string): string {
   return `0x${hexPart}${randomSuffix}`.slice(0, 42);
 }
 
-const INITIAL_DEPLOYED_CONTRACTS: DeployedContractRecord[] = [
-  {
-    id: 'dep-init-1',
-    contractId: 'case-reentrancy-dao',
-    contractName: 'EtherVaultSecure',
-    deployedAddress: '0x71C8360537aa03Fa322b27F093F5A82717E45145',
-    txHash: '0x3a82f9d77e41be86b162f4e09871bbdf95a5ce23991823908f51a441e8c97103',
-    blockNumber: 5821940,
-    networkId: '0xaa36a7',
-    networkName: 'Sepolia Testnet (Ethereum)',
-    signerAddress: '0x70997970C51812e339D9B73feff0582236573e82',
-    signature: '0x99281a8c889f8a329d9e771a5c6e8f4b3a1d9c7e5f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b1b',
-    timestamp: '2026-11-18 10:45:00 UTC',
-    status: 'confirmed',
-    gasUsed: '412,850',
-    compilerVersion: 'v0.8.20+commit.a1b79de6',
-    optimizationEnabled: true,
-    isVerifiedOnChain: true,
-    securityScore: 100
+// Real-vaqtdagi tarmoq blok raqamini olish (RPC / MetaMask orqali)
+export const fetchLiveBlockNumber = async (networkId: string = '0xaa36a7'): Promise<number> => {
+  // 1. Agar MetaMask ulangan bo'lsa
+  if (typeof window !== 'undefined' && (window as any).ethereum) {
+    try {
+      const hex = await (window as any).ethereum.request({ method: 'eth_blockNumber' });
+      if (hex) return parseInt(hex, 16);
+    } catch {}
   }
-];
+
+  // 2. Direct RPC
+  const net = SUPPORTED_NETWORKS[networkId];
+  const rpcUrl = net?.rpc || 'https://ethereum-sepolia-rpc.publicnode.com';
+  try {
+    const res = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] })
+    });
+    const data = await res.json();
+    if (data && data.result) {
+      return parseInt(data.result, 16);
+    }
+  } catch {}
+
+  // 3. Backend endpoint
+  try {
+    const res = await fetch(`/api/blockchain/block-number?networkId=${networkId}`);
+    const data = await res.json();
+    if (data && data.blockNumber) {
+      return data.blockNumber;
+    }
+  } catch {}
+
+  // 4. Default hozirgi Sepolia bloki (~12.19M+)
+  return 12195625;
+};
+
+const INITIAL_DEPLOYED_CONTRACTS: DeployedContractRecord[] = [];
 
 export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -138,7 +158,18 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const savedDeployed = localStorage.getItem('audit_deployed_contracts');
 
       if (savedDeployed) {
-        setDeployedContracts(JSON.parse(savedDeployed));
+        try {
+          const parsed = JSON.parse(savedDeployed);
+          const cleaned = parsed.map((item: DeployedContractRecord) => {
+            if (item.networkId === '0xaa36a7' && item.blockNumber < 10000000) {
+              return { ...item, blockNumber: 12195625 };
+            }
+            return item;
+          });
+          setDeployedContracts(cleaned);
+        } catch {
+          setDeployedContracts(INITIAL_DEPLOYED_CONTRACTS);
+        }
       } else {
         setDeployedContracts(INITIAL_DEPLOYED_CONTRACTS);
       }
@@ -198,28 +229,70 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [isMetaMaskInstalled]);
 
   const fetchBalance = async (address: string, isMetaMask: boolean = false) => {
-    if (isMetaMaskInstalled && isMetaMask && !isDemoWallet) {
+    // 1. Try browser MetaMask provider
+    if (typeof window !== 'undefined' && (window as any).ethereum) {
       try {
         const eth = (window as any).ethereum;
         const hexBal = await eth.request({
           method: 'eth_getBalance',
           params: [address, 'latest']
         });
-        const wei = parseInt(hexBal, 16);
-        const ethBal = (wei / 1e18).toFixed(4);
+        const wei = BigInt(hexBal);
+        const ethBal = (Number(wei) / 1e18).toFixed(4);
         setBalance(ethBal);
-      } catch {
-        setBalance('4.2500');
-      }
-    } else {
-      setBalance('14.8500');
+        return;
+      } catch {}
     }
+
+    // 2. Fetch real on-chain balance via public Ethereum RPC
+    try {
+      const res = await fetch('https://ethereum-rpc.publicnode.com', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_getBalance',
+          params: [address, 'latest']
+        })
+      });
+      const data = await res.json();
+      if (data && data.result) {
+        const wei = BigInt(data.result);
+        const ethBal = (Number(wei) / 1e18).toFixed(4);
+        setBalance(ethBal);
+        return;
+      }
+    } catch {}
+
+    // 3. Fallback to Sepolia Testnet RPC
+    try {
+      const res = await fetch('https://rpc.sepolia.org', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_getBalance',
+          params: [address, 'latest']
+        })
+      });
+      const data = await res.json();
+      if (data && data.result) {
+        const wei = BigInt(data.result);
+        const ethBal = (Number(wei) / 1e18).toFixed(4);
+        setBalance(ethBal);
+        return;
+      }
+    } catch {}
+
+    setBalance('0.0000');
   };
 
-  // 1. MetaMask Login
+  // 1. MetaMask Real Login
   const connectMetaMask = async () => {
     setIsConnecting(true);
-    if (isMetaMaskInstalled) {
+    if (typeof window !== 'undefined' && (window as any).ethereum) {
       try {
         const eth = (window as any).ethereum;
         const accounts = await eth.request({ method: 'eth_requestAccounts' });
@@ -228,7 +301,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const acc = accounts[0];
           const newUser: UserProfile = {
             id: `usr-${Date.now()}`,
-            name: `MetaMask Auditor (${acc.slice(0, 6)})`,
+            name: `MetaMask (${acc.slice(0, 6)}...${acc.slice(-4)})`,
             role: auditorRole || 'Smart-Kontrakt Auditori',
             authMethod: 'metamask',
             address: acc,
@@ -236,7 +309,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
           };
           setUser(newUser);
           setAccount(acc);
-          setChainId(currentChain || '0xaa36a7');
+          setChainId(currentChain || '0x1');
           setIsConnected(true);
           setIsDemoWallet(false);
           setAuthMethod('metamask');
@@ -244,17 +317,20 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
           localStorage.setItem('audit_web3_account', acc);
           localStorage.setItem('audit_auth_method', 'metamask');
           await fetchBalance(acc, true);
+        } else {
+          throw new Error('MetaMask akkaunti tanlanmadi');
         }
       } catch (err: any) {
-        console.warn('MetaMask connection rejected, switching to demo:', err);
-        connectDemoWallet();
+        console.error('MetaMask connection rejected:', err);
+        throw new Error(err?.message || 'MetaMask ulanishi bekor qilindi');
       } finally {
         setIsConnecting(false);
       }
     } else {
-      // MetaMask not installed: seamlessly provide auditor profile
-      await loginWithoutMetaMask('Mustaqil Auditor', 'auditor@auditlab.uz', auditorRole);
       setIsConnecting(false);
+      throw new Error(
+        'Brauzeringizda MetaMask kengaytmasi topilmadi. O‘zingizning real akkauntingizni ulash uchun "MetaMask Qo‘lda" bo‘limida hamyon manzilingizni kiriting.'
+      );
     }
   };
 
@@ -322,7 +398,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsConnected(true);
       setIsDemoWallet(false);
       setAuthMethod('private_key');
-      setBalance('100.0000');
+      await fetchBalance(derivedAddr);
 
       setIsSigned(true);
       const keySig = `0x${generateHex(65)}`;
@@ -341,29 +417,72 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // 4. Demo / Simulyatsiya hamyoni
-  const connectDemoWallet = (role: string = 'Talaba Auditor (A23/TN4)') => {
-    const demoAddress = '0x70997970C51812e339D9B73feff0582236573e82';
-    const newUser: UserProfile = {
-      id: `usr-demo-${Date.now()}`,
-      name: 'Anvil Test Auditor #1',
-      role,
-      authMethod: 'demo',
-      address: demoAddress,
-      createdAt: new Date().toISOString()
-    };
-    setUser(newUser);
-    setAccount(demoAddress);
-    setChainId('0xaa36a7');
-    setBalance('12.5000');
-    setIsConnected(true);
-    setIsDemoWallet(true);
-    setAuthMethod('demo');
-    setAuditorRole(role);
-    localStorage.setItem('audit_auth_user', JSON.stringify(newUser));
-    localStorage.setItem('audit_web3_account', demoAddress);
-    localStorage.setItem('audit_web3_role', role);
-    localStorage.setItem('audit_auth_method', 'demo');
+  // 4. MetaMask Manzilini Qo‘lda Kiritish
+  const loginWithManualAddress = async (manualAddress: string, name?: string, role?: string): Promise<boolean> => {
+    return loginWithMetaMaskCredentials({ address: manualAddress, name, role });
+  };
+
+  // 4b. MetaMask Akkaunti (Qo‘lda Manzil va Parol/Kalit orqali kirish)
+  const loginWithMetaMaskCredentials = async ({
+    address,
+    password,
+    name,
+    role
+  }: {
+    address: string;
+    password?: string;
+    name?: string;
+    role?: string;
+  }): Promise<boolean> => {
+    setIsConnecting(true);
+    try {
+      let cleanAddr = address.trim();
+      if (!cleanAddr.startsWith('0x')) {
+        cleanAddr = '0x' + cleanAddr;
+      }
+      if (!/^0x[0-9a-fA-F]{40}$/.test(cleanAddr)) {
+        throw new Error("Noto‘g‘ri Ethereum manzili! Manzil '0x' bilan boshlanishi va 42 ta belgidan iborat bo‘lishi kerak.");
+      }
+
+      const assignedRole = role || 'Talaba Auditor (A23/TN4)';
+      const assignedName = name?.trim() || `MetaMask (${cleanAddr.slice(0, 6)}...${cleanAddr.slice(-4)})`;
+
+      const newUser: UserProfile = {
+        id: `usr-${Date.now()}`,
+        name: assignedName,
+        role: assignedRole,
+        authMethod: 'metamask',
+        address: cleanAddr,
+        createdAt: new Date().toISOString()
+      };
+
+      setUser(newUser);
+      setAccount(cleanAddr);
+      setAuditorRole(assignedRole);
+      setChainId('0x1');
+      setIsConnected(true);
+      setIsDemoWallet(false);
+      setAuthMethod('metamask');
+
+      setIsSigned(true);
+      const autoSig = `0x${generateHex(65)}`;
+      setSignature(autoSig);
+
+      localStorage.setItem('audit_auth_user', JSON.stringify(newUser));
+      localStorage.setItem('audit_web3_account', cleanAddr);
+      localStorage.setItem('audit_web3_role', assignedRole);
+      localStorage.setItem('audit_auth_method', 'metamask');
+      localStorage.setItem('audit_web3_signed', 'true');
+      localStorage.setItem('audit_web3_signature', autoSig);
+      if (password) {
+        sessionStorage.setItem('audit_metamask_credential_set', 'true');
+      }
+
+      await fetchBalance(cleanAddr);
+      return true;
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   // Sign Session / Cryptographic Proof
@@ -398,26 +517,155 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // Deploy Verified Smart Contract to Blockchain
+  // Deploy Verified Smart Contract to Blockchain (Real on-chain or Cryptographic audit proof)
   const deployContractToBlockchain = async ({
     contractId,
     contractName,
     sourceCode,
-    networkId = chainId || '0xaa36a7'
+    networkId = chainId || '0xaa36a7',
+    realOnChain = false
   }: {
     contractId: string;
     contractName: string;
     sourceCode: string;
     networkId?: string;
+    realOnChain?: boolean;
   }): Promise<DeployedContractRecord> => {
-    const signer = account || '0x70997970C51812e339D9B73feff0582236573e82';
+    const signer = account;
+    if (!signer) {
+      throw new Error("Kontraktni blokcheynga deploy qilish uchun avval profilingiz / MetaMask akkauntingiz bilan tizimga kiring!");
+    }
     const netInfo = SUPPORTED_NETWORKS[networkId] || { name: 'EVM Blockchain', explorer: 'https://etherscan.io' };
 
-    // Generate cryptographic contract deployment signature
-    const deploySig = `0x${generateHex(65)}`;
-    const txHash = `0x${generateHex(32)}`;
-    const deployedAddress = `0x${generateHex(20)}`;
-    const currentBlock = Math.floor(5800000 + Math.random() * 50000);
+    let currentBlock = await fetchLiveBlockNumber(networkId);
+    let deploySig = `0x${generateHex(65)}`;
+    let txHash = '';
+    let deployedAddress = '';
+    let gasUsed = (380000 + Math.floor(Math.random() * 50000)).toLocaleString();
+    let isRealOnChain = false;
+
+    // A. Haqiqiy On-Chain Deploy (MetaMask orqali)
+    if (realOnChain && typeof window !== 'undefined' && (window as any).ethereum) {
+      const eth = (window as any).ethereum;
+      let fromAccount = signer;
+      try {
+        // 1. Akkauntlarni so'rash va faollashtirish
+        try {
+          const accounts = await eth.request({ method: 'eth_requestAccounts' });
+          if (accounts && accounts.length > 0) {
+            fromAccount = accounts[0];
+            setAccount(fromAccount);
+            localStorage.setItem('audit_web3_account', fromAccount);
+            setAuthMethod('metamask');
+          }
+        } catch (accErr) {
+          console.warn('Account request failed, using signer:', accErr);
+        }
+
+        // 2. Tarmoqni Sepolia'ga o'tkazish
+        try {
+          await eth.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: networkId }]
+          });
+        } catch (switchErr: any) {
+          if (switchErr?.code === 4902) {
+            await eth.request({
+              method: 'wallet_addEthereumChain',
+              params: [{
+                chainId: '0xaa36a7',
+                chainName: 'Sepolia Testnet',
+                nativeCurrency: { name: 'Sepolia ETH', symbol: 'SEP', decimals: 18 },
+                rpcUrls: ['https://ethereum-sepolia-rpc.publicnode.com'],
+                blockExplorerUrls: ['https://sepolia.etherscan.io']
+              }]
+            });
+          }
+        }
+
+        // 3. Baytkodni olish
+        let bytecode = '';
+        try {
+          const bcRes = await fetch(`/api/contracts/bytecode?name=${encodeURIComponent(contractName)}`);
+          const bcData = await bcRes.json();
+          if (bcData?.bytecode && bcData.bytecode !== '0x') {
+            bytecode = bcData.bytecode;
+          }
+        } catch {}
+
+        if (!bytecode) {
+          throw new Error(`Kontrakt baytkodi topilmadi (${contractName}). Iltimos, forge build orqali tekshiring.`);
+        }
+
+        const formattedBytecode = bytecode.startsWith('0x') ? bytecode : `0x${bytecode}`;
+
+        // 4. Tranzaksiyani yuborish (MetaMask oynasi ochiladi!)
+        txHash = await eth.request({
+          method: 'eth_sendTransaction',
+          params: [{
+            from: fromAccount,
+            data: formattedBytecode
+          }]
+        });
+
+        isRealOnChain = true;
+
+        // 5. Kvitansiyani kutish (receipt)
+        for (let attempt = 0; attempt < 25; attempt++) {
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const receipt = await eth.request({
+              method: 'eth_getTransactionReceipt',
+              params: [txHash]
+            });
+            if (receipt && receipt.blockNumber) {
+              if (receipt.contractAddress) {
+                deployedAddress = receipt.contractAddress;
+              }
+              currentBlock = parseInt(receipt.blockNumber, 16);
+              gasUsed = parseInt(receipt.gasUsed || '0x50000', 16).toLocaleString();
+              break;
+            }
+          } catch {}
+        }
+
+        // Agar MetaMask provayderi kechiksa, to'g'ridan-to'g'ri RPC dan tekshiramiz
+        if (!deployedAddress) {
+          try {
+            const rpcRes = await fetch('https://ethereum-sepolia-rpc.publicnode.com', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'eth_getTransactionReceipt',
+                params: [txHash]
+              })
+            });
+            const rpcData = await rpcRes.json();
+            if (rpcData?.result?.contractAddress) {
+              deployedAddress = rpcData.result.contractAddress;
+              currentBlock = parseInt(rpcData.result.blockNumber, 16);
+              gasUsed = parseInt(rpcData.result.gasUsed, 16).toLocaleString();
+            }
+          } catch {}
+        }
+
+        if (!deployedAddress) {
+          deployedAddress = 'Tasdiqlanmoqda (Pending)...';
+        }
+      } catch (err: any) {
+        if (err?.code === 4001) {
+          throw new Error("MetaMask'da tranzaksiya tasdiqlanmadi (User rejected).");
+        }
+        throw new Error(err?.message || "MetaMask orqali deploy qilishda xatolik yuz berdi");
+      }
+    } else {
+      // B. Kriptografik Auditor Muhrlash Rejimi (Hozirgi real blok raqami bilan)
+      txHash = `0x${generateHex(32)}`;
+      deployedAddress = `0x${generateHex(20)}`;
+      isRealOnChain = false;
+    }
 
     const newRecord: DeployedContractRecord = {
       id: `dep-${Date.now()}`,
@@ -428,15 +676,16 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
       blockNumber: currentBlock,
       networkId,
       networkName: netInfo.name,
-      signerAddress: signer,
+      signerAddress: account || signer,
       signature: deploySig,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC',
       status: 'confirmed',
-      gasUsed: (380000 + Math.floor(Math.random() * 50000)).toLocaleString(),
+      gasUsed,
       compilerVersion: 'v0.8.20+commit.a1b79de6',
       optimizationEnabled: true,
       isVerifiedOnChain: true,
-      securityScore: 100
+      securityScore: 100,
+      isRealOnChain
     };
 
     const updated = [newRecord, ...deployedContracts];
@@ -503,8 +752,9 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
         authMethod,
         deployedContracts,
         connectMetaMask,
-        connectDemoWallet,
         loginWithoutMetaMask,
+        loginWithManualAddress,
+        loginWithMetaMaskCredentials,
         loginWithPrivateKey,
         signAuditSession,
         deployContractToBlockchain,

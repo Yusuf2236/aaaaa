@@ -32,13 +32,35 @@ export const ManualAuditTab: React.FC<ManualAuditTabProps> = ({
   const [selectedFindingLines, setSelectedFindingLines] = useState<number[]>(
     contract.findings[0]?.vulnerableLines || []
   );
+  const [allDetectedLines, setAllDetectedLines] = useState<number[]>(
+    contract.findings[0]?.vulnerableLines || []
+  );
+  const [detectedIssues, setDetectedIssues] = useState<any[]>(contract.findings || []);
+  const [activeCode, setActiveCode] = useState<string>(contract.vulnerableCode);
   const [currentNote, setCurrentNote] = useState(studentNotes[contract.id] || '');
   const [noteSavedAlert, setNoteSavedAlert] = useState(false);
+
+  React.useEffect(() => {
+    setCurrentNote(studentNotes[contract.id] || '');
+    const initialLines = contract.findings[0]?.vulnerableLines || [];
+    setSelectedFindingLines(initialLines);
+    setAllDetectedLines(initialLines);
+    setDetectedIssues(contract.findings || []);
+    setActiveCode(contract.vulnerableCode);
+  }, [contract.id, studentNotes]);
 
   const handleSaveNote = () => {
     onSaveNotes(contract.id, currentNote);
     setNoteSavedAlert(true);
     setTimeout(() => setNoteSavedAlert(false), 2000);
+  };
+
+  const handleAuditRun = (newVulnerableLines: number[], issues: any[]) => {
+    setSelectedFindingLines(newVulnerableLines);
+    setAllDetectedLines(newVulnerableLines);
+    if (issues && issues.length > 0) {
+      setDetectedIssues(issues);
+    }
   };
 
   const completedChecksCount = contract.manualAuditChecklist.filter((c) => c.completed).length;
@@ -104,13 +126,93 @@ export const ManualAuditTab: React.FC<ManualAuditTabProps> = ({
           </div>
 
           <CodeViewer
-            code={contract.vulnerableCode}
+            code={activeCode}
             title={contract.fileName}
             language="solidity"
             highlightLines={selectedFindingLines}
             badge="Zaif Versiya"
             badgeType="danger"
+            onCodeSaved={(newCode) => setActiveCode(newCode)}
+            onAuditRun={handleAuditRun}
           />
+
+          {/* Dynamic Detected Vulnerabilities List */}
+          {detectedIssues.length > 0 && (
+            <div className="bg-[#080d1a] border border-rose-500/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(244,63,94,0.1)]">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-500 animate-pulse" />
+                  <span className="text-sm font-bold text-white">
+                    Aniqlangan Zaifliklar ({detectedIssues.length} ta)
+                  </span>
+                </div>
+                <button
+                  onClick={() => setSelectedFindingLines(allDetectedLines)}
+                  className="text-[11px] font-mono font-bold text-cyan-400 hover:text-cyan-300 underline"
+                >
+                  Barcha qizil qatorlarni ko‘rsatish
+                </button>
+              </div>
+
+              <div className="space-y-2.5 max-h-64 overflow-y-auto scrollbar-thin pr-1">
+                {detectedIssues.map((issue, idx) => {
+                  const issueLines = issue.lines || issue.vulnerableLines || [];
+                  const isCurrent =
+                    issueLines.length > 0 &&
+                    issueLines.every((l: number) => selectedFindingLines.includes(l));
+
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => {
+                        if (issueLines.length > 0) {
+                          setSelectedFindingLines(issueLines);
+                        }
+                      }}
+                      className={`p-3 rounded-xl border transition-all cursor-pointer ${
+                        isCurrent
+                          ? 'bg-rose-950/40 border-rose-500/60 shadow-[0_0_12px_rgba(244,63,94,0.2)]'
+                          : 'bg-slate-900/60 hover:bg-slate-900 border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="font-bold text-xs text-white flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                          {issue.title}
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {issueLines.length > 0 && (
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/40">
+                              Qator: {issueLines.join(', ')}
+                            </span>
+                          )}
+                          <span
+                            className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded ${
+                              issue.severity === 'CRITICAL'
+                                ? 'bg-rose-500/20 text-rose-400'
+                                : issue.severity === 'HIGH'
+                                ? 'bg-orange-500/20 text-orange-400'
+                                : 'bg-amber-500/20 text-amber-400'
+                            }`}
+                          >
+                            {issue.severity}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-relaxed">
+                        {issue.description}
+                      </p>
+                      {issue.recommendation && (
+                        <div className="text-[10px] text-emerald-400 font-mono mt-1 pt-1 border-t border-slate-800/80">
+                          💡 Tavsiya: {issue.recommendation}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Root Cause Card */}
           <div className="bg-gradient-to-r from-rose-950/40 via-slate-900/90 to-rose-950/40 border border-rose-500/40 rounded-2xl p-5 text-sm shadow-[0_0_20px_rgba(244,63,94,0.12)]">

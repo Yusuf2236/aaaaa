@@ -81,19 +81,25 @@ contract SecurityVaultV2 is Ownable, ReentrancyGuard {
   };
 
   const handleCustomDeploy = async () => {
-    setIsCustomDeploying(true);
     if (!account) {
-      await loginWithoutMetaMask('Auditor', 'auditor@lab.uz', 'Smart-Contract Auditor');
+      alert("Kontraktni deploy qilish uchun avval MetaMask profilingiz bilan tizimga kiring!");
+      return;
     }
+    setIsCustomDeploying(true);
     setTimeout(async () => {
-      const rec = await deployContractToBlockchain({
-        contractId: `custom-${Date.now()}`,
-        contractName: customContractName,
-        sourceCode: customSource,
-        networkId: chainId || '0xaa36a7'
-      });
-      setIsCustomDeploying(false);
-      if (onDeploySuccess) onDeploySuccess(rec);
+      try {
+        const rec = await deployContractToBlockchain({
+          contractId: `custom-${Date.now()}`,
+          contractName: customContractName,
+          sourceCode: customSource,
+          networkId: chainId || '0xaa36a7'
+        });
+        setIsCustomDeploying(false);
+        if (onDeploySuccess) onDeploySuccess(rec);
+      } catch (err: any) {
+        setIsCustomDeploying(false);
+        alert(err?.message || "Deploy qilishda xatolik yuz berdi");
+      }
     }, 1500);
   };
 
@@ -214,24 +220,41 @@ contract SecurityVaultV2 is Ownable, ReentrancyGuard {
                       <span className="text-[10px] font-mono font-bold bg-emerald-950/80 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/40">
                         {dep.status === 'confirmed' ? 'Tasdiqlangan ✓' : 'Kutilmoqda'}
                       </span>
+                      {dep.isRealOnChain ? (
+                        <span className="text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/40">
+                          On-Chain (Sepolia)
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-500/40">
+                          Kriptografik Muhr
+                        </span>
+                      )}
                       <span className="text-[10px] font-mono font-bold bg-cyan-950/80 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-500/40">
                         Ball: {dep.securityScore}/100
                       </span>
                     </div>
                     <div className="text-xs text-slate-400 mt-0.5">
-                      Tarmoq: <span className="text-slate-300 font-semibold">{dep.networkName}</span> · Blok: <span className="text-cyan-400 font-mono font-bold">#{dep.blockNumber}</span>
+                      Tarmoq: <span className="text-slate-300 font-semibold">{dep.networkName}</span> · Blok: <a
+                        href={`${SUPPORTED_NETWORKS[dep.networkId]?.explorer || 'https://sepolia.etherscan.io'}/block/${dep.blockNumber}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-cyan-400 hover:underline font-mono font-bold inline-flex items-center gap-0.5"
+                      >
+                        #{dep.blockNumber}
+                        <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+                      </a>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <a
-                    href={`https://sepolia.etherscan.io/address/${dep.deployedAddress}`}
+                    href={`${SUPPORTED_NETWORKS[dep.networkId]?.explorer || 'https://sepolia.etherscan.io'}/address/${dep.deployedAddress}`}
                     target="_blank"
                     rel="noreferrer"
                     className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-cyan-300 text-xs font-bold transition-colors border border-slate-700 flex items-center gap-1.5"
                   >
-                    <span>Etherscan</span>
+                    <span>{SUPPORTED_NETWORKS[dep.networkId]?.name.split(' ')[0] || 'Etherscan'} Skaneri</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </div>
@@ -256,13 +279,24 @@ contract SecurityVaultV2 is Ownable, ReentrancyGuard {
                 <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
                   <div className="text-[11px] text-slate-400 font-sans flex items-center justify-between mb-1">
                     <span>Tranzaksiya Xeshi (Tx Hash):</span>
-                    <button
-                      onClick={() => handleCopy(dep.txHash, `tx-${dep.id}`)}
-                      className="text-cyan-400 hover:text-white flex items-center gap-1"
-                    >
-                      {copiedId === `tx-${dep.id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      <span>{copiedId === `tx-${dep.id}` ? 'Nusxalandi' : 'Nusxa'}</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={`${SUPPORTED_NETWORKS[dep.networkId]?.explorer || 'https://sepolia.etherscan.io'}/tx/${dep.txHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-cyan-400 hover:text-white flex items-center gap-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Skaner</span>
+                      </a>
+                      <button
+                        onClick={() => handleCopy(dep.txHash, `tx-${dep.id}`)}
+                        className="text-cyan-400 hover:text-white flex items-center gap-1"
+                      >
+                        {copiedId === `tx-${dep.id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedId === `tx-${dep.id}` ? 'Nusxalandi' : 'Nusxa'}</span>
+                      </button>
+                    </div>
                   </div>
                   <div className="text-slate-300 truncate">{dep.txHash}</div>
                 </div>

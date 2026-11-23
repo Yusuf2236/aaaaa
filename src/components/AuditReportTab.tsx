@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ContractLabCase } from '../types';
-import { useWeb3 } from '../context/Web3Context';
+import { useWeb3, SUPPORTED_NETWORKS } from '../context/Web3Context';
 import {
   FileText,
   Printer,
@@ -202,7 +202,7 @@ ${c.fixedCode}
             <div className="text-[11px] text-slate-400 font-mono font-bold uppercase tracking-wider">Umumiy Natija:</div>
             <div className="text-sm font-extrabold text-emerald-400 flex items-center justify-end gap-1.5 mt-0.5">
               <ShieldCheck className="w-4 h-4" />
-              4/4 TUZATILDI
+              {contracts.length}/{contracts.length} TUZATILDI
             </div>
             <div className="text-[11px] text-slate-400 font-mono mt-1 font-semibold">
               100% Exploit Tests Pass
@@ -217,8 +217,8 @@ ${c.fixedCode}
             1. Ijroiya Xulosasi (Executive Summary)
           </h3>
           <p className="text-sm sm:text-base text-slate-300 leading-relaxed font-medium">
-            Mazkur xavfsizlik auditi davomida 4 ta muhim smart-kontrakt (Reentrancy, Access Control, Oracle Spot Manipulation,
-            va Integer Overflow) arxitekturasi chuqur o‘rganildi. Har bir aniqlangan zaiflik uchun real tarmoq sharoitlarini
+            Mazkur xavfsizlik auditi davomida {contracts.length} ta muhim smart-kontrakt (Reentrancy, Access Control, Oracle Spot Manipulation,
+            Integer Overflow va Signature Replay) arxitekturasi chuqur o‘rganildi. Har bir aniqlangan zaiflik uchun real tarmoq sharoitlarini
             aks ettiruvchi ekspluatatsiya testlari yozilib, ularning moliyaviy oqibatlari isbotlandi. So‘ngra barcha
             kamchiliklar OpenZeppelin sanoat standartlari asosida bartaraf etildi va testlar yordamida himoya tasdiqlandi.
           </p>
@@ -308,7 +308,7 @@ ${c.fixedCode}
                 <div className="bg-[#080d1a] p-4 sm:p-5 rounded-xl border border-slate-800/90 font-mono text-xs sm:text-sm text-slate-300">
                   <div className="text-slate-500 font-bold mb-2">// Tavsiya etilgan xavfsiz arxitektura:</div>
                   <ul className="list-disc list-inside space-y-1.5 text-slate-300">
-                    {c.fixDiffNotes.map((note, nIdx) => (
+                    {(c.fixDiffNotes || []).map((note, nIdx) => (
                       <li key={nIdx}>{note}</li>
                     ))}
                   </ul>
@@ -341,16 +341,41 @@ ${c.fixedCode}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80">
-                  {deployedContracts.map((dep) => (
-                    <tr key={dep.id} className="hover:bg-slate-900/50">
-                      <td className="py-3 px-3.5 font-bold text-cyan-300">{dep.contractName}</td>
-                      <td className="py-3 px-3.5 text-slate-300">{dep.networkName.split(' ')[0]}</td>
-                      <td className="py-3 px-3.5 text-white font-bold">{dep.deployedAddress.slice(0, 10)}...{dep.deployedAddress.slice(-6)}</td>
-                      <td className="py-3 px-3.5 text-slate-400">{dep.txHash.slice(0, 12)}...</td>
-                      <td className="py-3 px-3.5 text-emerald-400 font-bold">#{dep.blockNumber}</td>
-                      <td className="py-3 px-3.5 text-emerald-400 font-bold">✓ Tasdiqlangan</td>
-                    </tr>
-                  ))}
+                  {deployedContracts.map((dep) => {
+                    const explorerBase = SUPPORTED_NETWORKS[dep.networkId]?.explorer || 'https://sepolia.etherscan.io';
+                    return (
+                      <tr key={dep.id} className="hover:bg-slate-900/50">
+                        <td className="py-3 px-3.5 font-bold text-cyan-300">{dep.contractName}</td>
+                        <td className="py-3 px-3.5 text-slate-300">{dep.networkName.split(' ')[0]}</td>
+                        <td className="py-3 px-3.5 text-white font-bold">
+                          <a
+                            href={`${explorerBase}/address/${dep.deployedAddress}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-cyan-400 hover:underline inline-flex items-center gap-1 font-mono"
+                            title="Blokcheyn skanerida ko‘rish"
+                          >
+                            <span>{dep.deployedAddress.slice(0, 10)}...{dep.deployedAddress.slice(-6)}</span>
+                            <ExternalLink className="w-3 h-3 text-cyan-400" />
+                          </a>
+                        </td>
+                        <td className="py-3 px-3.5 text-slate-400 font-mono">
+                          <a
+                            href={`${explorerBase}/tx/${dep.txHash}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-slate-400 hover:text-cyan-300 hover:underline inline-flex items-center gap-1"
+                            title="Tranzaksiyani skanerda ko‘rish"
+                          >
+                            <span>{dep.txHash.slice(0, 12)}...</span>
+                            <ExternalLink className="w-3 h-3 text-slate-500" />
+                          </a>
+                        </td>
+                        <td className="py-3 px-3.5 text-emerald-400 font-bold">#{dep.blockNumber}</td>
+                        <td className="py-3 px-3.5 text-emerald-400 font-bold">✓ Tasdiqlangan</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

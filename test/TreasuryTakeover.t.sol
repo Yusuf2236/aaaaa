@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../contracts/MultiSigTreasury.sol";
+import "../contracts/MultiSigTreasurySecure.sol";
 
 contract TreasuryTakeoverTest is Test {
     MultiSigTreasury treasury;
@@ -33,5 +34,20 @@ contract TreasuryTakeoverTest is Test {
 
         assertEq(address(treasury).balance, 0, "Xazina bo'shamadi!");
         assertEq(attacker.balance, 50 ether, "Haker 50 ETH ololmadi!");
+    }
+
+    function testSecureContractBlocksUnauthorizedInit() public {
+        MultiSigTreasurySecure secureTreasury = new MultiSigTreasurySecure(legitOwner);
+        assertEq(secureTreasury.owner(), legitOwner);
+
+        vm.deal(address(secureTreasury), 50 ether);
+
+        // Hujumchi ruxsatsiz xazinani bo'shatishga urinadi va revert oladi
+        vm.prank(attacker);
+        vm.expectRevert("Ownable: caller is not the owner");
+        secureTreasury.transferTreasury(payable(attacker), 50 ether);
+
+        assertEq(address(secureTreasury).balance, 50 ether);
+        assertEq(attacker.balance, 0);
     }
 }

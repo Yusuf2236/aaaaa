@@ -2,6 +2,205 @@ import { ContractLabCase } from '../types';
 
 export const CONTRACT_LAB_CASES: ContractLabCase[] = [
   {
+    id: 'case-vulnerable-bank',
+    title: 'VulnerableBank (Reentrancy, Phishing, Access Control & Unchecked Call)',
+    fileName: 'VulnerableBank.sol',
+    category: 'reentrancy',
+    severity: 'CRITICAL',
+    summary: 'VulnerableBank bir vaqtning o‘zida 4 ta jiddiy kamchilikni o‘z ichiga oladi: withdraw() dagi reentrancy, transferOwnership() dagi tx.origin phishing, emergencyWithdraw() dagi ruxsat nazorati yo‘qligi va sendReward() dagi unchecked call.',
+    historicalIncident: {
+      name: 'VulnerableBank Student Audit Laboratory',
+      date: '2024 - Real-vaqt Laboratoriyasi',
+      stolenAmount: '$100M+ (Kombinatsiyalangan 4 ta zaiflik)',
+      victim: 'VulnerableBank DeFi Smart Contract',
+      summary: 'Reentrancy, tx.origin orqali aldash, ruxsatsiz emergencyWithdraw va unchecked call zaifliklari bitta bank kontraktida birlashtirilgan.'
+    },
+    manualAuditChecklist: [
+      {
+        id: 'chk-1',
+        task: 'withdraw() funksiyasida tashqi chaqiruvdan oldin balans nolga tenglashtirilishini tekshiring.',
+        hint: 'CEI qoidasi buzilgan — balans tashqi chaqiruvdan keyin yangilanmoqda!',
+        completed: false
+      },
+      {
+        id: 'chk-2',
+        task: 'transferOwnership() funksiyasidagi tx.origin tekshiruvini tahlil qiling.',
+        hint: 'tx.origin o‘rniga msg.sender va onlyOwner ishlatilishi shart.',
+        completed: false
+      },
+      {
+        id: 'chk-3',
+        task: 'emergencyWithdraw() va sendReward() funksiyalaridagi ruxsat va bool tekshiruvlarini baholang.',
+        hint: 'emergencyWithdraw ga onlyOwner, sendReward ga require(success) qo‘shilishi lozim.',
+        completed: false
+      }
+    ],
+    vulnerableCode: `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract VulnerableBank {
+    address public owner;
+    mapping(address => uint256) public balances;
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function deposit() external payable {
+        require(msg.value > 0, "Summa 0 dan katta bo'lishi kerak");
+        balances[msg.sender] += msg.value;
+    }
+
+    // 1-ZAIFLIK: Reentrancy (CEI buzilgan)
+    function withdraw() external {
+        uint256 amount = balances[msg.sender];
+        require(amount > 0, "Balans yetarli emas");
+
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "O'tkazma amalga oshmadi");
+
+        balances[msg.sender] = 0;
+    }
+
+    // 2-ZAIFLIK: tx.origin orqali autentifikatsiya (Phishing)
+    function transferOwnership(address newOwner) external {
+        require(tx.origin == owner, "Faqat egasi o'zgartira oladi");
+        owner = newOwner;
+    }
+
+    // 3-ZAIFLIK: Broken Access Control (onlyOwner yo'q)
+    function emergencyWithdraw(address payable to) external {
+        uint256 contractBalance = address(this).balance;
+        to.transfer(contractBalance);
+    }
+
+    // 4-ZAIFLIK: Unchecked Low-Level Call
+    function sendReward(address payable recipient, uint256 amount) external {
+        require(msg.sender == owner, "Faqat egasi");
+        recipient.call{value: amount}("");
+    }
+
+    function getContractBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+}`,
+    fixedCode: `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+abstract contract ReentrancyGuard {
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+    uint256 private _status = _NOT_ENTERED;
+
+    modifier nonReentrant() {
+        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
+        _status = _ENTERED;
+        _;
+        _status = _NOT_ENTERED;
+    }
+}
+
+contract VulnerableBankSecure is ReentrancyGuard {
+    address public owner;
+    mapping(address => uint256) public balances;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Faqat egasi (onlyOwner)");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function deposit() external payable {
+        require(msg.value > 0, "Summa 0 dan katta bo'lishi kerak");
+        balances[msg.sender] += msg.value;
+    }
+
+    // 1-TUZATISH: nonReentrant va CEI
+    function withdraw() external nonReentrant {
+        uint256 amount = balances[msg.sender];
+        require(amount > 0, "Balans yetarli emas");
+
+        balances[msg.sender] = 0;
+
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "O'tkazma amalga oshmadi");
+    }
+
+    // 2-TUZATISH: msg.sender va onlyOwner
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "Yaroqsiz yangi egasi");
+        owner = newOwner;
+    }
+
+    // 3-TUZATISH: Faqat onlyOwner
+    function emergencyWithdraw(address payable to) external onlyOwner {
+        require(to != address(0), "Yaroqsiz qabul qiluvchi");
+        uint256 contractBalance = address(this).balance;
+        (bool success, ) = to.call{value: contractBalance}("");
+        require(success, "Favqulodda yechish muvaffaqiyatsiz");
+    }
+
+    // 4-TUZATISH: Unchecked call tekshirildi
+    function sendReward(address payable recipient, uint256 amount) external onlyOwner {
+        require(recipient != address(0), "Yaroqsiz qabul qiluvchi");
+        require(address(this).balance >= amount, "Kontraktda yetarli ETH yo'q");
+
+        (bool success, ) = recipient.call{value: amount}("");
+        require(success, "Mukofot o'tkazmasi muvaffaqiyatsiz");
+    }
+
+    function getContractBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+}`,
+    fixDiffNotes: [
+      'ReentrancyGuard (nonReentrant) modifikatori qo‘shildi va CEI qoidasiga ko‘ra balances[msg.sender] = 0 avval bajarildi.',
+      'tx.origin o‘rniga msg.sender va qat’iy onlyOwner modifikatori o‘rnatildi.',
+      'emergencyWithdraw() funksiyasi faqat onlyOwner uchun cheklandi.',
+      'sendReward() funksiyasida call ning (bool success, ) natijasi require(success) orqali tekshirilishi majburiy qilindi.'
+    ],
+    findings: [
+      {
+        id: 'FIND-VBANK-001',
+        title: 'Multiple Critical Vulnerabilities in VulnerableBank',
+        severity: 'CRITICAL',
+        category: 'reentrancy',
+        swcId: 'SWC-107',
+        cweId: 'CWE-841',
+        vulnerableLines: [22, 25, 28, 34, 41, 48],
+        description: 'VulnerableBank bir vaqtning o‘zida 4 ta muhim zaiflikni o‘z ichiga oladi: reentrancy, tx.origin, broken access control va unchecked call.',
+        impact: 'CRITICAL: Hujumchi hamyonni butkul bo‘shatishi yoki phishing orqali egalikni tortib olishi mumkin.',
+        rootCause: 'Xavfsiz patternlar (CEI, Ownable) va qaytuvchi qiymat tekshiruvlari joriy etilmagan.',
+        recommendation: 'ReentrancyGuard, CEI, msg.sender va onlyOwner tekshiruvlarini kiriting.',
+        aiDetection: {
+          status: 'correct',
+          aiSummary: 'Topilgan 4 ta zaiflik: reentrancy, tx.origin, broken access control, unchecked call.',
+          humanCritique: 'To‘g‘ri aniqlandi.'
+        }
+      }
+    ],
+    slitherReport: {
+      summary: 'Slither reentrancy-eth, arbitrary-send-eth, tx-origin va unchecked-lowlevel zaifliklarini aniqladi.',
+      issues: []
+    },
+    exploitScenario: {
+      testFramework: 'Foundry',
+      testFileName: 'VulnerableBankExploit.t.sol',
+      testCode: `// test/VulnerableBankExploit.t.sol`,
+      initialState: { contractBalance: '10.0 ETH', attackerBalance: '1.0 ETH', victimDeposit: '10.0 ETH' },
+      exploitTrace: [
+        { step: 1, actor: 'AttackerContract', action: 'deposit 1 ETH & call withdraw()', gasUsed: '167,238', stateDelta: '+1 ETH', status: 'success' },
+        { step: 2, actor: 'VulnerableBank', action: 'msg.sender.call{value: 1 ETH} before balance update', gasUsed: '111,311', stateDelta: '-1 ETH', status: 'success' },
+        { step: 3, actor: 'AttackerContract', action: 'receive() recursive reenter withdraw() x10', gasUsed: '472,350', stateDelta: '-10 ETH (Drained)', status: 'hijacked' }
+      ],
+      finalStateVulnerable: { contractBalance: '0.0 ETH', attackerBalance: '11.0 ETH', lossPct: '100%' },
+      finalStatePatched: { contractBalance: '10.0 ETH', attackerBalance: '1.0 ETH', result: 'Reverted with ReentrancyGuard va onlyOwner himoyasi faol' }
+    }
+  },
+  {
     id: 'case-reentrancy-dao',
     title: 'The DAO Reentrancy (Vault & Drain)',
     fileName: 'EtherVault.sol',

@@ -40,11 +40,11 @@ export const WalletButton: React.FC = () => {
           {/* Kirish Tugmasi (MetaMasksiz yoki MetaMask bilan) */}
           <button
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center space-x-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black bg-gradient-to-r from-cyan-500 via-sky-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 shadow-[0_0_20px_rgba(0,240,255,0.35)] transition-all hover:scale-105 active:scale-95 shrink-0"
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 shadow-[0_0_20px_rgba(245,158,11,0.35)] transition-all hover:scale-105 active:scale-95 shrink-0"
           >
-            <User className="w-4 h-4 shrink-0" />
+            <Wallet className="w-4 h-4 shrink-0" />
             <span>Kirish</span>
-            <span className="hidden sm:inline text-[10px] font-normal opacity-90">(MetaMasksiz / Web3)</span>
+            <span className="hidden sm:inline text-[10px] font-bold opacity-90">(MetaMask / Web3)</span>
           </button>
         </div>
       ) : (

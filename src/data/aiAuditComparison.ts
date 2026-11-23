@@ -152,5 +152,36 @@ export const AI_AUDIT_DATA: AIAuditComparisonCase[] = [
       }
     ],
     criticalAnalysis: 'Eski Solidity versiyalaridagi aniq matematik qoidalar (overflow/underflow) bo‘yicha AI juda yuqori samaradorlik ko‘rsatadi (95%+).'
+  },
+  {
+    contractId: 'case-signature-replay',
+    contractName: 'SignatureReplay.sol',
+    aiToolTested: 'GPT-4o Smart-Contract Security Prompt',
+    model: 'OpenAI GPT-4o (Audit Assistant)',
+    promptMethod: 'Zero-shot vulnerability audit prompt',
+    humanAuditorVerdict: 'Kriptografik imzo replay zaifligi: nonce va chainId (EIP-712) yo‘qligi sababli bir martalik imzo qayta ishlatilib 8M$ mablag‘ o‘g‘irlangan.',
+    aiAuditorVerdict: 'ecrecover xavfini aniqladi, ammo cross-chain replay va chainId tekshiruvi yetishmasligini e’tibordan chetda qoldirdi.',
+    metrics: {
+      precision: 72,
+      recall: 65,
+      falsePositiveRate: 28,
+      falseNegativeRate: 35,
+      hallucinationScore: 18
+    },
+    discrepancies: [
+      {
+        type: 'False Negative (Missed)',
+        title: 'Cross-Chain Replay Attack e’tibordan qoldi',
+        description: 'AI faqat bitta zanjirdagi imzo takrorlanishini eslatdi, lekin Optimism/Ethereum o‘rtasidagi chainId farqi va Domain Separator (EIP-712) yo‘qligini hisobga olmadi.',
+        impactOnReport: 'Kritik xavf: Wintermute keysida xuddi shu sababli boshqa L2 zanjirida barcha tokenlar tortib olingan.'
+      },
+      {
+        type: 'Hallucinated Logic',
+        title: 'ecrecover malliability (s-value) bo‘yicha noaniq maslahat',
+        description: 'AI eski OpenZeppelin ECDSA kutubxonasiga murojaat qilishni tavsiya qildi, ammo zamonaviy Solidity 0.8.20 da o‘rnatilgan qoidalarni e’tibordan chetda qoldirdi.',
+        impactOnReport: 'Kompilyatsiya xatoligi va keraksiz kod murakkabligi keltirib chiqarishi mumkin.'
+      }
+    ],
+    criticalAnalysis: 'Kriptografik imzolar (ECDSA, EIP-712, ERC-1271) kontekstual protokol tuzilishiga bog‘liq. AI imzo sintaksisini tushunsada, uning multi-chain va nonce mantiqiy nuqsonlarini to‘liq baholay olmaydi.'
   }
 ];

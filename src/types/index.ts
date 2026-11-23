@@ -127,4 +127,5 @@ export interface DeployedContractRecord {
   optimizationEnabled: boolean;
   isVerifiedOnChain: boolean;
   securityScore: number;
+  isRealOnChain?: boolean;
 }
